@@ -112,7 +112,7 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:        "repo-query",
-				Destination: &cmd.Repo,
+				Destination: &cmd.RepoQuery,
 				Category:    "Query Arguments",
 				Value:       "",
 				Usage:       "Query to search for within repository metadata to limit the repositories queried",
