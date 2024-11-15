@@ -69,7 +69,7 @@ func ExecuteQuery(ctx context.Context, rp requests.RequestParams) (*QueryResults
 	// If we want to filter by repo topic then we must first do a repo query and then
 	// separately query for results in each repo. It is less efficient and GitHub rate
 	// limiting will kick in causing our overall query to take much longer.
-	if rp.Topic != "" {
+	if rp.Topic != "" || rp.RepoQuery != "" {
 		return queryPerRepo(ctx, rp)
 	}
 
