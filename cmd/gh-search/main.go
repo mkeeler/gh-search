@@ -39,7 +39,11 @@ type mutualExclusivityError struct {
 }
 
 func (e mutualExclusivityError) Error() string {
-	return fmt.Sprintf("The %q flag cannot be used with the %q flag", e.firstFlag, e.currentFlag)
+	return fmt.Sprintf("The %s flag cannot be used with the %s flag", e.firstFlag, e.currentFlag)
+}
+
+func (e mutualExclusivityError) ExitCode() int {
+	return 1
 }
 
 func checkExclusivity(ctx *cli.Context, existingFlag, currentFlag string) error {
@@ -47,6 +51,23 @@ func checkExclusivity(ctx *cli.Context, existingFlag, currentFlag string) error 
 		return mutualExclusivityError{firstFlag: existingFlag, currentFlag: currentFlag}
 	}
 	return nil
+}
+
+type stringFlagWithValidation struct {
+	value    string
+	validate func(string) error
+}
+
+func (f *stringFlagWithValidation) Set(value string) error {
+	if err := f.validate(value); err != nil {
+		return err
+	}
+	f.value = value
+	return nil
+}
+
+func (f *stringFlagWithValidation) String() string {
+	return f.value
 }
 
 func main() {
@@ -126,21 +147,23 @@ func main() {
 				Usage:       "GitHub API token to use to authorize the query (probably only pass this in as an environment variable for security reasons)",
 				EnvVars:     []string{"GITHUB_TOKEN", "GH_TOKEN"},
 			},
-			&cli.StringFlag{
-				Name:        "log-level",
-				Value:       "INFO",
+			&cli.GenericFlag{
+				Name: "log-level",
+				Value: &stringFlagWithValidation{
+					value: "INFO",
+					validate: func(value string) error {
+						level, found := logLevelStrings[strings.ToLower(value)]
+						if !found {
+							return fmt.Errorf("Invalid log level: %q", value)
+						}
+						cmd.logLevel = level
+						return nil
+					},
+				},
 				DefaultText: "INFO",
 				Usage:       "Logging Level [TRACE, DEBUG, INFO, WARN, ERROR]",
 				EnvVars:     []string{"GH_SEARCH_LOG_LEVEL"},
 				Category:    "Logging",
-				Action: func(_ *cli.Context, value string) error {
-					level, found := logLevelStrings[strings.ToLower(value)]
-					if !found {
-						return fmt.Errorf("Invalid log level: %q", value)
-					}
-					cmd.logLevel = level
-					return nil
-				},
 			},
 			&cli.BoolFlag{
 				Name:        "log-json",
@@ -148,20 +171,21 @@ func main() {
 				Category:    "Logging",
 				Destination: &cmd.logJson,
 			},
-			&cli.StringFlag{
-				Name:        "format",
-				Destination: &cmd.outputFormat,
-				Value:       "json",
+			&cli.GenericFlag{
+				Name: "format",
+				Value: &stringFlagWithValidation{
+					value: "json",
+					validate: func(value string) error {
+						if value != "json" && value != "pretty" {
+							return fmt.Errorf("Invalid output format : %q", value)
+						}
+						return nil
+					},
+				},
 				DefaultText: "json",
 				Usage:       "Output format [json, pretty]",
 				EnvVars:     []string{"GH_SEARCH_FORMAT"},
 				Category:    "Output Formatting",
-				Action: func(_ *cli.Context, value string) error {
-					if value != "json" && value != "pretty" {
-						return fmt.Errorf("Invalid output format : %q", value)
-					}
-					return nil
-				},
 			},
 		},
 		Name:            "gh-search",
@@ -170,6 +194,7 @@ func main() {
 		Args:            true,
 		ArgsUsage:       "<QUERY TEXT>",
 		Action:          cmd.run,
+		Before:          cmd.configureLogging,
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -195,8 +220,6 @@ func (cmd *command) configureLogging(ctx *cli.Context) error {
 }
 
 func (cmd *command) run(cliCtx *cli.Context) error {
-	cmd.configureLogging(cliCtx)
-
 	args := cliCtx.Args()
 	if args.Len() != 1 {
 		return fmt.Errorf("Exactly 1 query string must be provided for the search")
